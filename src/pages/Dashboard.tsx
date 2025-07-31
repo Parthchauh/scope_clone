@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import { Header } from "@/components/layout/Header";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { StudentDashboard } from "@/components/dashboard/StudentDashboard";
@@ -6,14 +7,12 @@ import { StudentProfile } from "@/components/student/StudentProfile";
 import { LeaveManagement } from "@/components/leave/LeaveManagement";
 
 const Dashboard = () => {
+  const { user } = useAuth();
   const [activeSection, setActiveSection] = useState('dashboard');
   
-  // Mock user data - this would come from authentication context
-  const userData = {
-    role: 'student' as const,
-    name: 'Alex Thompson',
-    id: 'PhD2021001'
-  };
+  if (!user) {
+    return null;
+  }
 
   const renderActiveSection = () => {
     switch (activeSection) {
@@ -45,14 +44,14 @@ const Dashboard = () => {
   return (
     <div className="flex h-screen bg-background">
       <Sidebar 
-        userRole={userData.role}
+        userRole={user.role}
         activeSection={activeSection}
         onSectionChange={setActiveSection}
       />
       <div className="flex-1 flex flex-col overflow-hidden">
         <Header 
-          userRole={userData.role}
-          userName={userData.name}
+          userRole={user.role}
+          userName={user.name}
         />
         <main className="flex-1 overflow-auto p-6">
           {renderActiveSection()}

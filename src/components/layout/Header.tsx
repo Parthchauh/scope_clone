@@ -6,6 +6,7 @@ import {
   DropdownMenuItem, 
   DropdownMenuTrigger 
 } from "@/components/ui/dropdown-menu";
+import { useAuth } from "@/contexts/AuthContext";
 import { Bell, LogOut, Settings, User } from "lucide-react";
 
 interface HeaderProps {
@@ -14,6 +15,7 @@ interface HeaderProps {
 }
 
 export const Header = ({ userRole, userName }: HeaderProps) => {
+  const { logout } = useAuth();
   const roleColors = {
     student: 'bg-primary',
     guide: 'bg-accent', 
@@ -70,7 +72,7 @@ export const Header = ({ userRole, userName }: HeaderProps) => {
                 <Settings className="mr-2 h-4 w-4" />
                 <span>Settings</span>
               </DropdownMenuItem>
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={logout}>
                 <LogOut className="mr-2 h-4 w-4" />
                 <span>Log out</span>
               </DropdownMenuItem>
