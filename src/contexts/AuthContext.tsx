@@ -1,4 +1,7 @@
-import { createContext, useContext, useState, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { User as SupabaseUser, Session } from "@supabase/supabase-js";
+import { useToast } from "@/hooks/use-toast";
 
 interface User {
   id: string;
@@ -12,10 +15,12 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
-  login: (email: string, password: string) => Promise<boolean>;
-  signup: (formData: any) => Promise<boolean>;
-  logout: () => void;
+  session: Session | null;
+  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  signup: (formData: any) => Promise<{ success: boolean; error?: string }>;
+  logout: () => Promise<void>;
   isAuthenticated: boolean;
+  loading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -34,93 +39,175 @@ interface AuthProviderProps {
 
 export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(true);
+  const { toast } = useToast();
 
-  const login = async (email: string, password: string): Promise<boolean> => {
-    // Mock authentication - in real app, this would call an API
-    try {
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Mock user data based on email
-      let mockUser: User;
-      
-      if (email.includes('dean') || email.includes('admin')) {
-        mockUser = {
-          id: '1',
-          name: 'Dr. John Dean',
-          email,
-          role: 'dean',
-          department: 'Computer Science'
-        };
-      } else if (email.includes('guide') || email.includes('faculty')) {
-        mockUser = {
-          id: '2',
-          name: 'Dr. Sarah Johnson',
-          email,
-          role: 'guide',
-          department: 'Computer Science'
-        };
-      } else if (email.includes('operator') || email.includes('admin')) {
-        mockUser = {
-          id: '3',
-          name: 'Admin Operator',
-          email,
-          role: 'operator',
-          department: 'Administration'
-        };
-      } else {
-        mockUser = {
-          id: '4',
-          name: 'Alex Thompson',
-          email,
-          role: 'student',
-          studentId: 'PhD2021001',
-          department: 'Computer Science',
-          program: 'Ph.D.'
-        };
+  useEffect(() => {
+    // Set up auth state listener FIRST
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        setSession(session);
+        
+        if (session?.user) {
+          // Fetch user profile from our profiles table
+          setTimeout(async () => {
+            try {
+              const { data: profile, error } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('user_id', session.user.id)
+                .single();
+
+              if (error && error.code !== 'PGRST116') {
+                console.error('Error fetching profile:', error);
+                return;
+              }
+
+              if (profile) {
+                setUser({
+                  id: profile.user_id,
+                  name: profile.name || 'Unknown User',
+                  email: session.user.email || '',
+                  role: profile.role as 'student' | 'guide' | 'operator' | 'dean',
+                  studentId: profile.student_id,
+                  department: profile.department,
+                  program: profile.program
+                });
+              }
+            } catch (error) {
+              console.error('Error in profile fetch:', error);
+            }
+          }, 0);
+        } else {
+          setUser(null);
+        }
+        
+        setLoading(false);
       }
-      
-      setUser(mockUser);
-      return true;
+    );
+
+    // THEN check for existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        toast({
+          title: "Login Failed",
+          description: error.message,
+          variant: "destructive",
+        });
+        return { success: false, error: error.message };
+      }
+
+      toast({
+        title: "Welcome back!",
+        description: "You have successfully logged in.",
+      });
+
+      return { success: true };
     } catch (error) {
       console.error('Login failed:', error);
-      return false;
+      return { success: false, error: 'An unexpected error occurred' };
+    } finally {
+      setLoading(false);
     }
   };
 
-  const signup = async (formData: any): Promise<boolean> => {
+  const signup = async (formData: any): Promise<{ success: boolean; error?: string }> => {
     try {
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      setLoading(true);
+      const redirectUrl = `${window.location.origin}/`;
       
-      const newUser: User = {
-        id: Date.now().toString(),
-        name: formData.name,
+      const { data, error } = await supabase.auth.signUp({
         email: formData.email,
-        role: formData.role || 'student',
-        studentId: formData.studentId,
-        department: formData.department,
-        program: formData.program
-      };
-      
-      setUser(newUser);
-      return true;
+        password: formData.password,
+        options: {
+          emailRedirectTo: redirectUrl,
+          data: {
+            name: formData.name,
+            student_id: formData.studentId,
+            department: formData.department,
+            program: formData.program,
+            role: formData.role || 'student'
+          }
+        }
+      });
+
+      if (error) {
+        toast({
+          title: "Signup Failed",
+          description: error.message,
+          variant: "destructive",
+        });
+        return { success: false, error: error.message };
+      }
+
+      toast({
+        title: "Account Created!",
+        description: "Please check your email to verify your account.",
+      });
+
+      return { success: true };
     } catch (error) {
       console.error('Signup failed:', error);
-      return false;
+      return { success: false, error: 'An unexpected error occurred' };
+    } finally {
+      setLoading(false);
     }
   };
 
-  const logout = () => {
-    setUser(null);
+  const logout = async () => {
+    try {
+      setLoading(true);
+      const { error } = await supabase.auth.signOut();
+      
+      if (error) {
+        toast({
+          title: "Logout Failed",
+          description: error.message,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      toast({
+        title: "Goodbye!",
+        description: "You have been logged out successfully.",
+      });
+    } catch (error) {
+      console.error('Logout failed:', error);
+      toast({
+        title: "Error",
+        description: "An error occurred during logout.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const value = {
     user,
+    session,
     login,
     signup,
     logout,
-    isAuthenticated: !!user
+    isAuthenticated: !!user && !!session,
+    loading
   };
 
   return (
